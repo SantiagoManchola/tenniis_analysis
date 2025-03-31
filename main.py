@@ -15,11 +15,15 @@ def main():
     player_detections = player_tracker.detect_frames(video_frames, read_from_stub=True, stub_path="tracker_stubs/player_detections.pkl")
     ball_detections = ball_tracker.detect_frames(video_frames, read_from_stub=True, stub_path="tracker_stubs/ball_detections.pkl")
 
+    ball_detections = ball_tracker.interpolate_ball_positions(ball_detections)
 
     #Court Line Detection
     court_model_path = "models/keypoints_model.pth"
     court_line_detector = CourtLineDetector(court_model_path)
     court_keypoints = court_line_detector.predict(video_frames[0])
+
+    # choose players
+    player_detections = player_tracker.choose_and_filter_players(court_keypoints, player_detections)
 
     #Draw output
 
