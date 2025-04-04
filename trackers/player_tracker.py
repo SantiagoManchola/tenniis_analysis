@@ -10,12 +10,45 @@ class PlayerTracker:
         self.model = YOLO(model_path)
 
     def choose_and_filter_players(self, court_keypoints, player_detections):
-        player_detections_first_frame = player_detections[0]
-        chosen_player = self.choose_players(court_keypoints, player_detections_first_frame)
+        first_player_dict = player_detections[0]
+        chosen_players = self.choose_players(court_keypoints, first_player_dict)
+
+        # Creamos un mapeo de antiguos a nuevos track_id
+        stable_ids = list(chosen_players)
+        stable_positions = [get_center_of_bbox(first_player_dict[pid]) for pid in stable_ids]
+
+        last_known_positions = [first_player_dict.get(pid) for pid in stable_ids]
+
+        disappear_counter = [0 for _ in stable_ids]
         filtered_player_detections = []
+
         for player_dict in player_detections:
-            filtered_player_dict = {track_id: bbox for track_id, bbox in player_dict.items() if track_id in chosen_player}
-            filtered_player_detections.append(filtered_player_dict)
+            current_ids = list(player_dict.keys())
+            current_positions = [get_center_of_bbox(player_dict[pid]) for pid in current_ids]
+
+            new_player_dict = {}
+            for i, stable_pos in enumerate(stable_positions):
+                min_distance = float('inf')
+                best_id = None
+                for j, current_pos in enumerate(current_positions):
+                    dist = measure_distance(stable_pos, current_pos)
+                    if dist < min_distance:
+                        min_distance = dist
+                        best_id = current_ids[j]
+
+                if best_id is not None and best_id in player_dict:
+                    new_player_dict[i + 1] = player_dict[best_id]  # Usamos ID fijo: Player 1, Player 2
+                    last_known_positions[i] = player_dict[best_id]
+                    disappear_counter[i] = 0
+                else:
+                # Si no fue detectado, usamos la última posición conocida
+                    disappear_counter[i] += 1   
+                    if disappear_counter[i] < 30:
+                        if last_known_positions[i] is not None:
+                            new_player_dict[i + 1] = last_known_positions[i]
+
+            filtered_player_detections.append(new_player_dict)
+
         return filtered_player_detections
 
     def choose_players(self, court_keypoints, player_dict):
@@ -63,12 +96,13 @@ class PlayerTracker:
 
         player_dict = {}
         for box in results.boxes:
-            track_id = int(box.id.tolist()[0])
+            track_id = int(box.id.tolist()[0]) if box.id is not None else -1
             result = box.xyxy.tolist()[0]
             object_cls_id = box.cls.tolist()[0]
             object_cls_name = id_name_dict[object_cls_id]
             if object_cls_name == "person":
                 player_dict[track_id] = result
+
         return player_dict
     
     def draw_bboxes(self, video_frames, player_detections):
